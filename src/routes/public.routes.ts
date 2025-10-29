@@ -105,7 +105,11 @@ export default async function publicRoutes(app: FastifyInstance) {
         },
         required: ['id']
       },
-      response: { 200: { type: 'object' } }
+      // Important: allow all properties to avoid fast-json-stringify stripping
+      response: { 
+        200: { type: 'object', additionalProperties: true },
+        404: { type: 'object', additionalProperties: true },
+      }
     }
   }, async (req: any, reply: any) => {
     try {
