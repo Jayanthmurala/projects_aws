@@ -208,15 +208,12 @@ export default async function publicRoutes(app: FastifyInstance) {
       // Remove restrictive response schema that might be causing JSON serialization issues
     }
   }, async (req: any, reply: any) => {
-    console.log(`[GET /v1/projects/:id/comments] Route called with projectId: ${req.params.id}`);
-    
     try {
       const user = await optionalAuth(req);
       const { id: projectId } = req.params;
       const { page = 1, limit = 20 } = req.query as any;
       
-      console.log(`[GET /v1/projects/${projectId}/comments] Starting request processing...`);
-      console.log(`[GET /v1/projects/${projectId}/comments] User:`, { hasUser: !!user, userId: user?.sub });
+      
 
       // Check if project exists and is accessible
       const project = await prisma.project.findUnique({
@@ -231,50 +228,34 @@ export default async function publicRoutes(app: FastifyInstance) {
         }
       });
 
-      console.debug(`[GET /v1/projects/${projectId}/comments] Project check:`, {
-        projectExists: !!project,
-        projectId,
-        moderationStatus: project?.moderationStatus,
-        archivedAt: project?.archivedAt,
-        authorId: project?.authorId,
-        userId: user?.sub,
-        isAuthor: project?.authorId === user?.sub,
-        hasUser: !!user,
-        userRoles: user?.roles
-      });
+      
 
       if (!project) {
-        console.debug(`[GET /v1/projects/${projectId}/comments] Project not found in database`);
         return reply.status(404).send({
           success: false,
           error: "Project not found"
         });
       }
 
-      // Check accessibility - Allow project authors to access their own projects regardless of status
+      // Check accessibility - Allow project authors and accepted members to access
       const isAuthor = project.authorId === user?.sub;
       const isAdmin = user?.roles?.some(role => ['HEAD_ADMIN', 'DEPT_ADMIN', 'SUPER_ADMIN'].includes(role));
       const isApprovedPublic = project.moderationStatus === 'APPROVED' && !project.archivedAt;
-      
-      if (!isApprovedPublic && !isAuthor && !isAdmin) {
-        console.debug(`[GET /v1/projects/${projectId}/comments] Access denied:`, {
-          isApprovedPublic,
-          isAuthor,
-          isAdmin,
-          moderationStatus: project.moderationStatus,
-          archivedAt: project.archivedAt
+      let isAcceptedMember = false;
+      if (user && !isAuthor) {
+        const membership = await prisma.appliedProject.findFirst({
+          where: { projectId, studentId: user.sub, status: 'ACCEPTED' }
         });
+        isAcceptedMember = !!membership;
+      }
+      
+      if (!isApprovedPublic && !isAuthor && !isAdmin && !isAcceptedMember) {
         return reply.status(404).send({
           success: false,
           error: "Project not found"
         });
       }
       
-      console.debug(`[GET /v1/projects/${projectId}/comments] Access granted:`, {
-        isApprovedPublic,
-        isAuthor,
-        isAdmin
-      });
 
       // For project-level comments, filter out task-specific comments
       const whereClause = { 
@@ -283,22 +264,7 @@ export default async function publicRoutes(app: FastifyInstance) {
       };
 
       // First, let's check all comments for this project (without taskId filter)
-      const allComments = await prisma.comment.findMany({
-        where: { projectId },
-        select: { id: true, taskId: true, authorId: true, body: true, createdAt: true }
-      });
-
-      console.debug(`[GET /v1/projects/${projectId}/comments] All comments in DB:`, {
-        projectId,
-        totalCommentsInDB: allComments.length,
-        comments: allComments.map(c => ({
-          id: c.id,
-          taskId: c.taskId,
-          authorId: c.authorId,
-          bodyPreview: c.body.substring(0, 50),
-          createdAt: c.createdAt
-        }))
-      });
+      
 
       const comments = await prisma.comment.findMany({
         where: whereClause,
@@ -311,21 +277,7 @@ export default async function publicRoutes(app: FastifyInstance) {
         where: whereClause
       });
 
-      console.debug(`[GET /v1/projects/${projectId}/comments] Filtered comments:`, {
-        whereClause,
-        filteredCount: comments.length,
-        total,
-        page,
-        limit,
-        comments: comments.map(c => ({
-          id: c.id,
-          taskId: c.taskId,
-          authorId: c.authorId,
-          bodyPreview: c.body.substring(0, 50)
-        }))
-      });
-
-      console.log(`[GET /v1/projects/${projectId}/comments] Sending response with ${comments.length} comments`);
+      
       
       // Send the full response with comments data
       return reply.send({

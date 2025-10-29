@@ -226,16 +226,7 @@ export default async function studentRoutes(app: FastifyInstance) {
       });
 
       // Filter out applications where the project is archived
-      const filteredApplications = applications.filter(app => 
-        app.project && !app.project.archivedAt
-      );
-
-      console.log('[DEBUG] Student applications filtering:', {
-        userId: user.sub,
-        totalApplications: applications.length,
-        filteredApplications: filteredApplications.length,
-        archivedProjects: applications.filter(app => app.project?.archivedAt).length
-      });
+      const filteredApplications = applications.filter(app => app.project && !app.project.archivedAt);
 
       const total = await prisma.appliedProject.count({
         where: whereClause
@@ -271,7 +262,10 @@ export default async function studentRoutes(app: FastifyInstance) {
   app.get("/v1/projects/mine/accepted", {
     schema: {
       tags: ["projects"],
-      response: { 200: { type: 'object' } }
+      // Allow full payload to avoid serializer stripping to {}
+      response: { 
+        200: { type: 'object', additionalProperties: true }
+      }
     }
   }, async (req: any, reply: any) => {
     try {
