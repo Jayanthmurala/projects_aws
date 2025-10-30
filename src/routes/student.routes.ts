@@ -292,7 +292,13 @@ export default async function studentRoutes(app: FastifyInstance) {
               createdAt: true,
               archivedAt: true,
               authorAvatar: true,
-              acceptedStudentsCount: true
+              _count: {
+                select: {
+                  applications: {
+                    where: { status: 'ACCEPTED' }
+                  }
+                }
+              }
             }
           }
         },
@@ -302,7 +308,7 @@ export default async function studentRoutes(app: FastifyInstance) {
       // Filter out any null projects (safety) or archived (double safety)
       const projects = acceptedApplications
         .map(app => app.project)
-        .filter((p: any) => p && !p.archivedAt);
+        .filter((project: any) => project && !project.archivedAt);
 
       return reply.send({
         success: true,
