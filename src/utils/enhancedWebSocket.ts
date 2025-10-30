@@ -17,6 +17,7 @@ export interface ProjectUpdateEvent {
   attachment?: any;
   createdBy?: { id: string; name: string };
   updatedBy?: { id: string; name: string };
+  deletedBy?: { id: string; name: string };
   timestamp: string;
 }
 
@@ -45,6 +46,8 @@ const cache = getCache();
 let io: SocketIOServer | null = null;
 
 export function initializeWebSocket(server: HttpServer): SocketIOServer {
+  console.log('🚀 Initializing WebSocket server on port 4003...');
+  
   io = new SocketIOServer(server, {
     cors: {
       origin: ["http://localhost:3000", "http://127.0.0.1:3000", "https://nexus-frontend-pi-ten.vercel.app"],
@@ -60,6 +63,8 @@ export function initializeWebSocket(server: HttpServer): SocketIOServer {
     allowEIO3: true
   });
 
+  console.log('✅ WebSocket server configured with CORS origins:', ["http://localhost:3000", "http://127.0.0.1:3000"]);
+
   // Enhanced authentication middleware
   io.use(async (socket, next) => {
     try {
@@ -68,8 +73,11 @@ export function initializeWebSocket(server: HttpServer): SocketIOServer {
                    socket.handshake.query.token;
       
       if (!token) {
+        console.error('❌ WebSocket connection rejected: No authentication token');
         return next(new Error('Authentication token required'));
       }
+
+      console.log('🔑 WebSocket auth token received, verifying...');
 
       const payload = await verifyAccessToken(token as string);
       const userScope = getUserScopeFromJWT(payload);
@@ -96,6 +104,16 @@ export function initializeWebSocket(server: HttpServer): SocketIOServer {
   });
 
   io.on('connection', (socket) => {
+    console.log('🔌 NEW WEBSOCKET CONNECTION ATTEMPT:', {
+      socketId: socket.id,
+      handshake: {
+        address: socket.handshake.address,
+        headers: Object.keys(socket.handshake.headers),
+        query: socket.handshake.query,
+        auth: socket.handshake.auth ? 'Present' : 'Missing'
+      }
+    });
+
     const userData: SocketUserData = socket.data;
     const { userId, collegeId, department, roles } = userData;
 
@@ -106,7 +124,7 @@ export function initializeWebSocket(server: HttpServer): SocketIOServer {
     activeConnections.get(userId)!.add(socket.id);
     socketUserMap.set(socket.id, userId);
 
-    console.log(`User ${userId} connected to WebSocket`, {
+    console.log(`✅ User ${userId} connected to WebSocket`, {
       socketId: socket.id,
       userId,
       collegeId,
@@ -243,14 +261,25 @@ export function emitProjectUpdate(event: ProjectUpdateEvent): void {
   // Add timestamp
   event.timestamp = new Date().toISOString();
 
+  console.log('🚀 EMITTING PROJECT UPDATE:', {
+    type: event.type,
+    projectId,
+    collegeId,
+    connectedClients: io.engine.clientsCount
+  });
+
   // Emit to project-specific room (for active collaborators)
   if (io) {
-    io.to(`project:${projectId}`).emit('project-update', event);
+    const projectRoom = `project:${projectId}`;
+    io.to(projectRoom).emit('project-update', event);
+    console.log(`📡 Emitted to project room: ${projectRoom}`);
   }
 
   // Emit to college room
   if (collegeId && io) {
-    io.to(`college:${collegeId}`).emit('project-update', event);
+    const collegeRoom = `college:${collegeId}`;
+    io.to(collegeRoom).emit('project-update', event);
+    console.log(`📡 Emitted to college room: ${collegeRoom}`);
   }
 
   // Emit to specific departments if not visible to all
@@ -408,16 +437,10 @@ export function getWebSocketInstance(): SocketIOServer | null {
   return io;
 }
 
-// Health check for WebSocket
-export function getWebSocketHealth(): {
-  status: 'healthy' | 'unhealthy';
-  connections: number;
-  uptime: number;
-  lastError?: string;
-} {
+export function getWebSocketHealth() {
   if (!io) {
     return {
-      status: 'unhealthy',
+      status: 'unhealthy' as const,
       connections: 0,
       uptime: 0,
       lastError: 'WebSocket not initialized'
@@ -425,8 +448,9 @@ export function getWebSocketHealth(): {
   }
 
   return {
-    status: 'healthy',
-    connections: io ? io.sockets.sockets.size : 0,
+    status: 'healthy' as const,
+    connections: io.engine.clientsCount || 0,
     uptime: process.uptime(),
   };
 }
+

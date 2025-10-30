@@ -66,12 +66,15 @@ export default async function facultyRoutes(app: FastifyInstance) {
       });
 
       // CRITICAL: Clear cache BEFORE sending response to ensure fresh data
+      console.log('🚨 PROJECT CREATED - Starting cache invalidation for project:', project.id);
       await CacheInvalidation.invalidateByEntity('project', project.id, 'create', {
         collegeId: project.collegeId.toString(),
         authorId: user.sub
       });
+      console.log('✅ PROJECT CREATED - Cache invalidation completed for project:', project.id);
 
       // Emit WebSocket event for new project
+      console.log('🚀 PROJECT CREATED - Emitting WebSocket event for project:', project.id);
       emitProjectUpdate({
         type: 'new-project',
         projectId: project.id,
@@ -82,6 +85,7 @@ export default async function facultyRoutes(app: FastifyInstance) {
         createdBy: { id: user.sub, name: user.displayName || "Unknown Faculty" },
         timestamp: new Date().toISOString()
       });
+      console.log('📡 PROJECT CREATED - WebSocket event emitted for project:', project.id);
 
       return reply.status(201).send({
         success: true,
@@ -265,10 +269,36 @@ export default async function facultyRoutes(app: FastifyInstance) {
       }
 
       // Soft delete by setting archivedAt
-      await prisma.project.update({
+      const archivedProject = await prisma.project.update({
         where: { id },
         data: { archivedAt: new Date() }
       });
+
+      // CRITICAL: Clear cache BEFORE sending response
+      console.log('🗑️ PROJECT ARCHIVED - Starting cache invalidation for project:', id);
+      await CacheInvalidation.invalidateByEntity('project', id, 'delete', {
+        collegeId: existingProject.collegeId.toString(),
+        authorId: user.sub
+      });
+      console.log('✅ PROJECT ARCHIVED - Cache invalidation completed for project:', id);
+
+      // Emit WebSocket event for project deletion/archive
+      console.log('🚀 PROJECT ARCHIVED - Emitting WebSocket event for project:', id);
+      emitProjectUpdate({
+        type: 'project-deleted',
+        projectId: id,
+        project: {
+          id: archivedProject.id,
+          title: existingProject.title,
+          description: existingProject.description
+        },
+        collegeId: existingProject.collegeId.toString(),
+        departments: existingProject.authorDepartment ? [existingProject.authorDepartment] : [],
+        visibleToAllDepts: existingProject.visibleToAllDepts,
+        deletedBy: { id: user.sub, name: user.displayName || "Faculty" },
+        timestamp: new Date().toISOString()
+      });
+      console.log('📡 PROJECT ARCHIVED - WebSocket event emitted for project:', id);
 
       return reply.send({
         success: true,

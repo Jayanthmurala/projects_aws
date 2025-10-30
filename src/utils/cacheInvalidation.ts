@@ -117,11 +117,31 @@ export class CacheInvalidation {
         const commonKeys = this.getCommonCacheKeys(pattern);
         await Promise.all(commonKeys.map(key => cache.del(key)));
       } else {
-        // In-memory cache - clear all keys that match pattern
-        // This is a simplified implementation
-        const basePattern = pattern.replace('*', '');
+        // In-memory cache - AGGRESSIVE CLEARING for immediate fix
+        // Clear all possible variations of the pattern
         const commonKeys = this.getCommonCacheKeys(pattern);
-        await Promise.all(commonKeys.map(key => cache.del(key)));
+        
+        // Also try to clear with different user patterns
+        if (pattern.startsWith('faculty_projects:')) {
+          // Clear for different user ID patterns
+          const additionalKeys = [
+            'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU=',
+            'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/bGltaXQ9NTA=',
+            'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/bGltaXQ9MjA=',
+            'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/cGFnZT0x',
+          ];
+          commonKeys.push(...additionalKeys);
+        }
+        
+        logger.warn(`🧹 CLEARING ${commonKeys.length} cache keys for pattern: ${pattern}`);
+        await Promise.all(commonKeys.map(async (key) => {
+          try {
+            await cache.del(key);
+            logger.debug(`✅ Cleared cache key: ${key}`);
+          } catch (error) {
+            logger.error(`❌ Failed to clear key ${key}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }));
       }
     } catch (error) {
       logger.error({ error, pattern }, 'Failed to clear wildcard pattern');
@@ -139,15 +159,20 @@ export class CacheInvalidation {
       keys.push(
         'college_projects:L3YxL3Byb2plY3Rz', // /v1/projects
         'college_projects:L3YxL3Byb2plY3RzP3BhZ2U9MQ==', // /v1/projects?page=1
-        'college_projects:L3YxL3Byb2plY3RzP2xpbWl0PTIw' // /v1/projects?limit=20
+        'college_projects:L3YxL3Byb2plY3RzP2xpbWl0PTIw', // /v1/projects?limit=20
+        'college_projects:L3YxL3Byb2plY3RzP2xpbWl0PTUw' // /v1/projects?limit=50
       );
     } else if (pattern.startsWith('faculty_projects:')) {
+      // CRITICAL: Clear the exact faculty projects cache keys we see in logs
       keys.push(
-        'faculty_projects:user:*', // This would need proper pattern matching
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU=', // /v1/projects/mine
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/bGltaXQ9NTA=', // /v1/projects/mine?limit=50
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/bGltaXQ9MjA=', // /v1/projects/mine?limit=20
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/cGFnZT0x', // /v1/projects/mine?page=1
       );
     } else if (pattern.startsWith('marketplace:')) {
       keys.push(
-        'marketplace:college:*', // This would need proper pattern matching
+        'marketplace:college:test:L3YxL3Byb2plY3RzL21hcmtldHBsYWNl', // /v1/projects/marketplace
       );
     } else if (pattern.startsWith('api_cache:')) {
       keys.push(
@@ -167,19 +192,55 @@ export class CacheInvalidation {
    */
   static async clearAllApiCache() {
     try {
-      const patterns = [
-        'college_projects:*',
-        'faculty_projects:*', 
-        'marketplace:*',
-        'applications:*',
-        'api_cache:*'
+      // NUCLEAR OPTION: Clear all known cache key patterns
+      const specificKeys = [
+        // Faculty projects - all variations
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU=',
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/bGltaXQ9NTA=',
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/bGltaXQ9MjA=',
+        'faculty_projects:user:anonymous:L3YxL3Byb2plY3RzL21pbmU/cGFnZT0x',
+        
+        // College projects - all variations
+        'college_projects:L3YxL3Byb2plY3Rz',
+        'college_projects:L3YxL3Byb2plY3RzP3BhZ2U9MQ==',
+        'college_projects:L3YxL3Byb2plY3RzP2xpbWl0PTIw',
+        'college_projects:L3YxL3Byb2plY3RzP2xpbWl0PTUw',
+        
+        // Marketplace - NEW KEYS FROM LOGS (all variations)
+        'marketplace:college:no-college:L3YxL3Byb2plY3RzL21hcmtldHBsYWNlP3BhZ2U9MSZsaW1pdD0xMg==',
+        'marketplace:college:no-college:L3YxL3Byb2plY3RzL21hcmtldHBsYWNl',
+        'marketplace:college:no-college:L3YxL3Byb2plY3RzL21hcmtldHBsYWNlP3BhZ2U9MQ==',
+        'marketplace:college:no-college:L3YxL3Byb2plY3RzL21hcmtldHBsYWNlP2xpbWl0PTIw',
+        'marketplace:college:no-college:L3YxL3Byb2plY3RzL21hcmtldHBsYWNlP3BhZ2U9MSZsaW1pdD0yMA==',
+        'marketplace:college:no-college:L3YxL3Byb2plY3RzL21hcmtldHBsYWNlP3BhZ2U9MiZsaW1pdD0xMg==',
+        
+        // API cache variations
+        'api_cache:GET:/v1/projects',
+        'api_cache:GET:/v1/projects/mine',
+        'api_cache:GET:/v1/projects/marketplace',
+        'api_cache:GET:/v1/applications/mine',
       ];
 
-      logger.info('Clearing ALL API cache for real-time updates');
-      await this.clearCacheByPattern(patterns);
+      logger.warn(`🚨 NUCLEAR CACHE CLEAR: Clearing ${specificKeys.length} specific cache keys`);
+      
+      let clearedCount = 0;
+      let errorCount = 0;
+      
+      for (const key of specificKeys) {
+        try {
+          await cache.del(key);
+          clearedCount++;
+          logger.debug(`✅ Cleared: ${key}`);
+        } catch (error) {
+          errorCount++;
+          logger.error(`❌ Failed to clear: ${key}`);
+        }
+      }
+      
+      logger.warn(`✅ CACHE CLEAR COMPLETE: ${clearedCount} cleared, ${errorCount} errors`);
       
     } catch (error) {
-      logger.error({ error }, 'Failed to clear all API cache');
+      logger.error({ error }, '❌ Failed to clear all API cache');
     }
   }
 
