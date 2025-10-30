@@ -4,6 +4,7 @@ import { fileUploadValidationMiddleware } from "../middlewares/fileValidation";
 import { rateLimitFileUpload } from "../middlewares/rateLimitMiddleware";
 import { prisma } from "../db";
 import { emitProjectUpdate } from "../utils/enhancedWebSocket";
+import { CacheInvalidation } from "../utils/cacheInvalidation";
 import { getUserIdentity } from "../clients/auth";
 
 export default async function collaborationRoutes(app: FastifyInstance) {
@@ -961,6 +962,11 @@ export default async function collaborationRoutes(app: FastifyInstance) {
           name: user.displayName || "Unknown User"
         },
         timestamp: new Date().toISOString()
+      });
+
+      // Invalidate project-related caches after comment creation
+      await CacheInvalidation.invalidateByEntity('project', projectId, 'update', {
+        collegeId: project.collegeId
       });
 
       return reply.status(201).send({

@@ -2,6 +2,8 @@ import { FastifyInstance } from "fastify";
 import { requireStudent, requireFacultyOrStudent, canAccessProject } from "../middlewares/unifiedAuth";
 import { prisma } from "../db";
 import { emitApplicationUpdate } from "../utils/enhancedWebSocket";
+import { createCacheMiddleware, CacheKeyGenerators, cacheResponse, CacheInvalidator } from "../middlewares/cacheMiddleware";
+import { CacheInvalidation } from "../utils/cacheInvalidation";
 
 export default async function studentRoutes(app: FastifyInstance) {
   
@@ -145,6 +147,13 @@ export default async function studentRoutes(app: FastifyInstance) {
         timestamp: new Date().toISOString()
       });
 
+      // Invalidate relevant caches after successful application
+      await CacheInvalidation.invalidateByEntity('application', result.id, 'create', {
+        projectId,
+        studentId: user.sub,
+        collegeId: project.collegeId
+      });
+
       return reply.status(201).send({
         success: true,
         data: { application: result }
@@ -176,6 +185,12 @@ export default async function studentRoutes(app: FastifyInstance) {
 
   // Get my applications - Student only
   app.get("/v1/applications/mine", {
+    preHandler: [
+      createCacheMiddleware({
+        ttl: 120, // 2 minutes cache for applications (can change frequently)
+        keyGenerator: CacheKeyGenerators.userSpecific('applications')
+      })
+    ],
     schema: {
       tags: ["applications"],
       querystring: {
@@ -248,6 +263,9 @@ export default async function studentRoutes(app: FastifyInstance) {
         }
       };
 
+      // Cache the response if caching is enabled
+      await cacheResponse(req, reply, response);
+
       return reply.code(200).send(response);
     } catch (error: any) {
       
@@ -260,6 +278,12 @@ export default async function studentRoutes(app: FastifyInstance) {
 
   // Get my accepted projects (collaboration access)
   app.get("/v1/projects/mine/accepted", {
+    preHandler: [
+      createCacheMiddleware({
+        ttl: 300, // 5 minutes cache for accepted projects (less frequent changes)
+        keyGenerator: CacheKeyGenerators.userSpecific('accepted_projects')
+      })
+    ],
     schema: {
       tags: ["projects"],
       // Allow full payload to avoid serializer stripping to {}
@@ -310,10 +334,15 @@ export default async function studentRoutes(app: FastifyInstance) {
         .map(app => app.project)
         .filter((project: any) => project && !project.archivedAt);
 
-      return reply.send({
+      const responseData = {
         success: true,
         data: { projects }
-      });
+      };
+
+      // Cache the response if caching is enabled
+      await cacheResponse(req, reply, responseData);
+
+      return reply.send(responseData);
     } catch (error) {
       return reply.status(500).send({
         success: false,
@@ -386,6 +415,13 @@ export default async function studentRoutes(app: FastifyInstance) {
         timestamp: new Date().toISOString()
       });
 
+      // Invalidate relevant caches after successful withdrawal
+      await CacheInvalidation.invalidateByEntity('application', id, 'delete', {
+        projectId: application.projectId,
+        studentId: user.sub,
+        collegeId: application.project.collegeId
+      });
+
       return reply.send({
         success: true,
         message: "Application withdrawn successfully"
@@ -401,6 +437,17 @@ export default async function studentRoutes(app: FastifyInstance) {
 
   // Get projects marketplace for students - authenticated route with proper filtering
   app.get("/v1/projects/marketplace", {
+    preHandler: [
+      createCacheMiddleware({
+        ttl: 180, // 3 minutes cache for marketplace (frequent updates)
+        keyGenerator: CacheKeyGenerators.collegeSpecific('marketplace'),
+        skipCache: (req) => {
+          // Skip cache if search query is present (more dynamic)
+          const query = (req.query as any);
+          return !!(query.q && query.q.length > 0);
+        }
+      })
+    ],
     schema: {
       tags: ["projects"],
       querystring: {
@@ -616,6 +663,8 @@ export default async function studentRoutes(app: FastifyInstance) {
         }
       };
 
+      // Cache the response if caching is enabled
+      await cacheResponse(req, reply, responseData);
       
       return reply.code(200).send(responseData);
     } catch (error) {

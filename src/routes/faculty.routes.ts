@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { requireFaculty, requireFacultyOrStudent, canAccessProject, UnifiedAuthPayload } from "../middlewares/unifiedAuth";
 import { prisma } from "../db";
 import { emitProjectUpdate, emitApplicationUpdate } from "../utils/enhancedWebSocket";
+import { CacheInvalidation } from "../utils/cacheInvalidation";
 import { projectValidationMiddleware } from "../middlewares/inputValidation";
 import { 
   projectSchemas, 
@@ -74,6 +75,12 @@ export default async function facultyRoutes(app: FastifyInstance) {
         visibleToAllDepts: project.visibleToAllDepts,
         createdBy: { id: user.sub, name: user.displayName || "Unknown Faculty" },
         timestamp: new Date().toISOString()
+      });
+
+      // Invalidate relevant caches after successful project creation
+      await CacheInvalidation.invalidateByEntity('project', project.id, 'create', {
+        collegeId: project.collegeId.toString(),
+        authorId: user.sub
       });
 
       return reply.status(201).send({
@@ -199,6 +206,12 @@ export default async function facultyRoutes(app: FastifyInstance) {
         visibleToAllDepts: updatedProject.visibleToAllDepts,
         updatedBy: { id: user.sub, name: user.displayName || "Unknown Faculty" },
         timestamp: new Date().toISOString()
+      });
+
+      // Invalidate relevant caches after successful project update
+      await CacheInvalidation.invalidateByEntity('project', updatedProject.id, 'update', {
+        collegeId: updatedProject.collegeId.toString(),
+        authorId: user.sub
       });
 
       return reply.send({
@@ -445,6 +458,13 @@ export default async function facultyRoutes(app: FastifyInstance) {
         projectId: updatedApplication.projectId,
         collegeId: facultyAuth.scope.collegeId?.toString() || '',
         timestamp: new Date().toISOString()
+      });
+
+      // Invalidate relevant caches after successful application status update
+      await CacheInvalidation.invalidateByEntity('application', id, 'update', {
+        projectId: updatedApplication.projectId,
+        studentId: updatedApplication.studentId,
+        collegeId: facultyAuth.scope.collegeId?.toString() || ''
       });
 
       return reply.send({

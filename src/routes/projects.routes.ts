@@ -6,11 +6,29 @@ import { requireAuth, requireRole, optionalAuth } from "../middlewares/auth";
 import { prisma } from "../db";
 import { getUserScope } from "../clients/profile";
 import { emitProjectUpdate, emitApplicationUpdate } from "../utils/enhancedWebSocket";
+import { createCacheMiddleware, CacheKeyGenerators, cacheResponse } from "../middlewares/cacheMiddleware";
 import type { Prisma, $Enums } from "@prisma/client";
 
 export default async function projectsRoutes(app: FastifyInstance) {
   // List projects in my college (scoped; visibility enforced later)
-  app.get("/v1/projects", async (req: any, reply: any) => {
+  app.get("/v1/projects", {
+    preHandler: [
+      createCacheMiddleware({
+        ttl: 240, // 4 minutes cache for college projects
+        keyGenerator: (req) => {
+          // Create cache key based on user role, college, department, and query params
+          const query = req.query as any;
+          const url = req.url;
+          return `college_projects:${Buffer.from(url).toString('base64')}`;
+        },
+        skipCache: (req) => {
+          // Skip cache for search queries (more dynamic)
+          const query = (req.query as any);
+          return !!(query.q && query.q.length > 0);
+        }
+      })
+    ]
+  }, async (req: any, reply: any) => {
     try {
       const payload = await requireAuth(req);
 
@@ -140,6 +158,10 @@ export default async function projectsRoutes(app: FastifyInstance) {
             }
           }
         };
+
+        // Cache the response if caching is enabled
+        await cacheResponse(req, reply, response);
+        
         return reply.code(200).send(response);
     } catch (error: any) {
       // Handle JWT expiration specifically
@@ -161,6 +183,12 @@ export default async function projectsRoutes(app: FastifyInstance) {
 
   // My projects (FACULTY)
   app.get("/v1/projects/mine", {
+    preHandler: [
+      createCacheMiddleware({
+        ttl: 300, // 5 minutes cache for faculty projects (less frequent changes)
+        keyGenerator: CacheKeyGenerators.userSpecific('faculty_projects')
+      })
+    ],
     schema: { tags: ["projects"], response: { 200: z.any() } },
   }, async (req: any, reply: any) => {
     const payload = await requireAuth(req);
@@ -186,7 +214,12 @@ export default async function projectsRoutes(app: FastifyInstance) {
       _count: undefined
     }));
     
-    return reply.send({ projects: projectsOut });
+    const responseData = { projects: projectsOut };
+
+    // Cache the response if caching is enabled
+    await cacheResponse(req, reply, responseData);
+    
+    return reply.send(responseData);
   });
 
   // Project creation - handled by faculty.routes.ts
