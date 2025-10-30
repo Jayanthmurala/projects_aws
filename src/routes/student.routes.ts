@@ -274,7 +274,9 @@ export default async function studentRoutes(app: FastifyInstance) {
       const acceptedApplications = await prisma.appliedProject.findMany({
         where: {
           studentId: user.sub,
-          status: 'ACCEPTED'
+          status: 'ACCEPTED',
+          // Exclude archived projects
+          project: { archivedAt: null }
         },
         include: {
           project: {
@@ -287,14 +289,20 @@ export default async function studentRoutes(app: FastifyInstance) {
               projectType: true,
               progressStatus: true,
               deadline: true,
-              createdAt: true
+              createdAt: true,
+              archivedAt: true,
+              authorAvatar: true,
+              acceptedStudentsCount: true
             }
           }
         },
         orderBy: { appliedAt: 'desc' }
       });
 
-      const projects = acceptedApplications.map(app => app.project);
+      // Filter out any null projects (safety) or archived (double safety)
+      const projects = acceptedApplications
+        .map(app => app.project)
+        .filter((p: any) => p && !p.archivedAt);
 
       return reply.send({
         success: true,

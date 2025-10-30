@@ -560,7 +560,8 @@ export default async function collaborationRoutes(app: FastifyInstance) {
         },
         required: ['fileName', 'fileUrl', 'fileType']
       },
-      response: { 201: { type: 'object' } }
+      // Allow full payload to avoid serializer stripping
+      response: { 201: { type: 'object', additionalProperties: true } }
     }
   }, async (req: any, reply: any) => {
     try {
@@ -668,7 +669,8 @@ export default async function collaborationRoutes(app: FastifyInstance) {
           fileName: { type: 'string', minLength: 1, maxLength: 255 }
         },
         required: ['fileName']
-      }
+      },
+      response: { 200: { type: 'object', additionalProperties: true } }
     }
   }, async (req: any, reply: any) => {
     try {
