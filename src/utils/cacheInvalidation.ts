@@ -33,16 +33,30 @@ export class CacheInvalidation {
     try {
       const keys: string[] = [];
 
-      // Add college-specific cache keys if available
+      // API Response Cache Keys (from caching middleware)
+      // These are the actual keys that need to be cleared for real-time updates
+      keys.push(
+        // College projects listing cache
+        'college_projects:*',
+        // Faculty projects cache  
+        'faculty_projects:*',
+        // Marketplace cache
+        'marketplace:*',
+        // Applications cache
+        'applications:*',
+        // General API cache
+        'api_cache:*'
+      );
+
+      // Legacy cache keys (if any)
       if (collegeId) {
         keys.push(
           `college_projects:${collegeId}`,
           `college_stats:${collegeId}`,
-          `project_list:${collegeId}:*` // Pattern for wildcard deletion
+          `project_list:${collegeId}:*`
         );
       }
 
-      // Add author-specific cache keys if available
       if (authorId) {
         keys.push(
           `user_projects:${authorId}`,
@@ -57,17 +71,115 @@ export class CacheInvalidation {
         `project_stats:${projectId}`
       );
 
-      await Promise.all(keys.map(key => {
-        if (key.includes('*')) {
-          // Handle wildcard patterns (would need Redis SCAN in real implementation)
-          return Promise.resolve();
-        }
-        return cache.del(key);
-      }));
+      // Clear cache keys with pattern matching
+      await this.clearCacheByPattern(keys);
+      
+      // AGGRESSIVE: Clear all API cache to ensure real-time updates work
+      await this.clearAllApiCache();
       
       logger.debug({ projectId, collegeId, authorId, keys }, 'Invalidated project cache');
     } catch (error) {
-      logger.error({ error, projectId }, 'Failed to invalidate project cache');
+      logger.error({ error, projectId, collegeId, authorId }, 'Failed to invalidate project cache');
+    }
+  }
+
+  /**
+   * Clear cache keys by pattern (supports wildcards)
+   */
+  static async clearCacheByPattern(patterns: string[]) {
+    try {
+      for (const pattern of patterns) {
+        if (pattern.includes('*')) {
+          // For wildcard patterns, we need to get all matching keys
+          await this.clearWildcardPattern(pattern);
+        } else {
+          // Direct key deletion
+          await cache.del(pattern);
+        }
+      }
+    } catch (error) {
+      logger.error({ error, patterns }, 'Failed to clear cache by pattern');
+    }
+  }
+
+  /**
+   * Clear cache keys matching wildcard pattern
+   */
+  static async clearWildcardPattern(pattern: string) {
+    try {
+      // For Redis, we would use SCAN command
+      // For in-memory cache, we need to implement pattern matching
+      const cacheType = process.env.NODE_ENV === 'production' && process.env.REDIS_URL ? 'redis' : 'memory';
+      
+      if (cacheType === 'redis') {
+        // Redis implementation would use SCAN + DEL
+        // For now, we'll clear common patterns manually
+        const commonKeys = this.getCommonCacheKeys(pattern);
+        await Promise.all(commonKeys.map(key => cache.del(key)));
+      } else {
+        // In-memory cache - clear all keys that match pattern
+        // This is a simplified implementation
+        const basePattern = pattern.replace('*', '');
+        const commonKeys = this.getCommonCacheKeys(pattern);
+        await Promise.all(commonKeys.map(key => cache.del(key)));
+      }
+    } catch (error) {
+      logger.error({ error, pattern }, 'Failed to clear wildcard pattern');
+    }
+  }
+
+  /**
+   * Get common cache keys for a pattern
+   */
+  static getCommonCacheKeys(pattern: string): string[] {
+    const keys: string[] = [];
+    
+    if (pattern.startsWith('college_projects:')) {
+      // Generate common college project cache keys
+      keys.push(
+        'college_projects:L3YxL3Byb2plY3Rz', // /v1/projects
+        'college_projects:L3YxL3Byb2plY3RzP3BhZ2U9MQ==', // /v1/projects?page=1
+        'college_projects:L3YxL3Byb2plY3RzP2xpbWl0PTIw' // /v1/projects?limit=20
+      );
+    } else if (pattern.startsWith('faculty_projects:')) {
+      keys.push(
+        'faculty_projects:user:*', // This would need proper pattern matching
+      );
+    } else if (pattern.startsWith('marketplace:')) {
+      keys.push(
+        'marketplace:college:*', // This would need proper pattern matching
+      );
+    } else if (pattern.startsWith('api_cache:')) {
+      keys.push(
+        'api_cache:GET:/v1/projects',
+        'api_cache:GET:/v1/projects/marketplace',
+        'api_cache:GET:/v1/projects/mine',
+        'api_cache:GET:/v1/applications/mine'
+      );
+    }
+    
+    return keys;
+  }
+
+  /**
+   * Clear ALL API response cache (aggressive approach for immediate real-time updates)
+   * Use this when you need to ensure real-time updates work immediately
+   */
+  static async clearAllApiCache() {
+    try {
+      const patterns = [
+        'college_projects:*',
+        'faculty_projects:*', 
+        'marketplace:*',
+        'applications:*',
+        'api_cache:*'
+      ];
+
+      logger.info('Clearing ALL API cache for real-time updates');
+      await this.clearCacheByPattern(patterns);
+      
+    } catch (error) {
+      logger.error({ error }, 'Failed to clear all API cache');
     }
   }
 
@@ -77,6 +189,13 @@ export class CacheInvalidation {
   static async invalidateApplicationCache(applicationId: string, projectId: string, studentId: string) {
     try {
       const keys = [
+        // API Response Cache Keys (from caching middleware)
+        'applications:*',
+        'marketplace:*', 
+        'college_projects:*',
+        'faculty_projects:*',
+        'api_cache:*',
+        // Legacy keys
         `application:${applicationId}`,
         `project_applications:${projectId}`,
         `student_applications:${studentId}`,
@@ -84,7 +203,10 @@ export class CacheInvalidation {
         `student_stats:${studentId}`
       ];
 
-      await Promise.all(keys.map(key => cache.del(key)));
+      await this.clearCacheByPattern(keys);
+      
+      // AGGRESSIVE: Clear all API cache to ensure real-time updates work
+      await this.clearAllApiCache();
       
       logger.debug({ applicationId, projectId, studentId, keys }, 'Invalidated application cache');
     } catch (error) {

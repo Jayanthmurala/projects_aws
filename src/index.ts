@@ -11,6 +11,7 @@ import studentRoutes from "./routes/student.routes";
 import collaborationRoutes from "./routes/collaboration.routes";
 import projectsRoutes from "./routes/projects.routes";
 import healthRoutes from "./routes/health.routes";
+import debugRoutes from "./routes/debug.routes";
 import { env } from "./config/env";
 import { rateLimitConfig, createRedisClientForRateLimit } from "./config/rateLimits";
 import { initializeWebSocket } from "./utils/enhancedWebSocket";
@@ -131,6 +132,7 @@ async function buildServer() {
   await app.register(studentRoutes);
   await app.register(collaborationRoutes);
   await app.register(adminRoutes);
+  await app.register(debugRoutes);
 
   return app;
 }
