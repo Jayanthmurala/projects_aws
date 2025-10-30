@@ -65,6 +65,12 @@ export default async function facultyRoutes(app: FastifyInstance) {
         }
       });
 
+      // CRITICAL: Clear cache BEFORE sending response to ensure fresh data
+      await CacheInvalidation.invalidateByEntity('project', project.id, 'create', {
+        collegeId: project.collegeId.toString(),
+        authorId: user.sub
+      });
+
       // Emit WebSocket event for new project
       emitProjectUpdate({
         type: 'new-project',
@@ -75,12 +81,6 @@ export default async function facultyRoutes(app: FastifyInstance) {
         visibleToAllDepts: project.visibleToAllDepts,
         createdBy: { id: user.sub, name: user.displayName || "Unknown Faculty" },
         timestamp: new Date().toISOString()
-      });
-
-      // Invalidate relevant caches after successful project creation
-      await CacheInvalidation.invalidateByEntity('project', project.id, 'create', {
-        collegeId: project.collegeId.toString(),
-        authorId: user.sub
       });
 
       return reply.status(201).send({
@@ -196,6 +196,12 @@ export default async function facultyRoutes(app: FastifyInstance) {
         data: updateData
       });
 
+      // CRITICAL: Clear cache BEFORE sending response
+      await CacheInvalidation.invalidateByEntity('project', updatedProject.id, 'update', {
+        collegeId: updatedProject.collegeId.toString(),
+        authorId: user.sub
+      });
+
       // Emit WebSocket event for project update
       emitProjectUpdate({
         type: 'project-updated',
@@ -206,12 +212,6 @@ export default async function facultyRoutes(app: FastifyInstance) {
         visibleToAllDepts: updatedProject.visibleToAllDepts,
         updatedBy: { id: user.sub, name: user.displayName || "Unknown Faculty" },
         timestamp: new Date().toISOString()
-      });
-
-      // Invalidate relevant caches after successful project update
-      await CacheInvalidation.invalidateByEntity('project', updatedProject.id, 'update', {
-        collegeId: updatedProject.collegeId.toString(),
-        authorId: user.sub
       });
 
       return reply.send({
@@ -451,6 +451,13 @@ export default async function facultyRoutes(app: FastifyInstance) {
         }
       });
 
+      // CRITICAL: Clear cache BEFORE sending response
+      await CacheInvalidation.invalidateByEntity('application', id, 'update', {
+        projectId: updatedApplication.projectId,
+        studentId: updatedApplication.studentId,
+        collegeId: facultyAuth.scope.collegeId?.toString() || ''
+      });
+
       // Emit WebSocket event for application status update
       emitApplicationUpdate(facultyAuth.sub, {
         type: 'application-status-changed',
@@ -458,13 +465,6 @@ export default async function facultyRoutes(app: FastifyInstance) {
         projectId: updatedApplication.projectId,
         collegeId: facultyAuth.scope.collegeId?.toString() || '',
         timestamp: new Date().toISOString()
-      });
-
-      // Invalidate relevant caches after successful application status update
-      await CacheInvalidation.invalidateByEntity('application', id, 'update', {
-        projectId: updatedApplication.projectId,
-        studentId: updatedApplication.studentId,
-        collegeId: facultyAuth.scope.collegeId?.toString() || ''
       });
 
       return reply.send({

@@ -138,6 +138,13 @@ export default async function studentRoutes(app: FastifyInstance) {
         });
       }
 
+      // CRITICAL: Clear cache BEFORE sending response
+      await CacheInvalidation.invalidateByEntity('application', result.id, 'create', {
+        projectId,
+        studentId: user.sub,
+        collegeId: project.collegeId
+      });
+
       // Emit WebSocket event for new application
       emitApplicationUpdate(project.authorId, {
         type: 'new-application',
@@ -145,13 +152,6 @@ export default async function studentRoutes(app: FastifyInstance) {
         projectId,
         collegeId: project.collegeId,
         timestamp: new Date().toISOString()
-      });
-
-      // Invalidate relevant caches after successful application
-      await CacheInvalidation.invalidateByEntity('application', result.id, 'create', {
-        projectId,
-        studentId: user.sub,
-        collegeId: project.collegeId
       });
 
       return reply.status(201).send({
@@ -406,6 +406,13 @@ export default async function studentRoutes(app: FastifyInstance) {
         where: { id }
       });
 
+      // CRITICAL: Clear cache BEFORE sending response
+      await CacheInvalidation.invalidateByEntity('application', id, 'delete', {
+        projectId: application.projectId,
+        studentId: user.sub,
+        collegeId: application.project.collegeId
+      });
+
       // Emit WebSocket event for application withdrawal
       emitApplicationUpdate(application.project.authorId, {
         type: 'application-withdrawn',
@@ -413,13 +420,6 @@ export default async function studentRoutes(app: FastifyInstance) {
         projectId: application.projectId,
         collegeId: application.project.collegeId,
         timestamp: new Date().toISOString()
-      });
-
-      // Invalidate relevant caches after successful withdrawal
-      await CacheInvalidation.invalidateByEntity('application', id, 'delete', {
-        projectId: application.projectId,
-        studentId: user.sub,
-        collegeId: application.project.collegeId
       });
 
       return reply.send({
